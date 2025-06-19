@@ -1,0 +1,211 @@
+
+Helper for confidence Interval Bootstrapping
+
+```{r}
+alpha_boot <- function(data, indices) {
+  psych::alpha(data[indices, ])$total$raw_alpha
+}
+```
+
+Simulate a single Trial:
+
+```{r}
+library(psych)
+library(lavaan)
+library(boot)
+
+simulate_reliability_trial <- function(loading_type, n, n_items) {
+  
+  # Loadings & Error variances
+  if (loading_type == "tau_equivalent") {
+    loadings <- rep(0.7, n_items)
+  } else if (loading_type == "small_var") {
+    loadings <- runif(n_items, 0.6, 0.8)
+  } else if (loading_type == "medium_var") {
+    loadings <- runif(n_items, 0.5, 0.9)
+  } else if (loading_type == "high_var") {
+    loadings <- runif(n_items, 0.4, 1)
+  }
+
+  error_vars <- runif(n_items, 0.2, 1.2)
+  
+  # 1. Latente Variable
+  eta <- rnorm(n)
+
+  # 2. Itemantworten simulieren
+  Y <- sapply(1:n_items, function(j) {
+    eta * loadings[j] + rnorm(n, sd = sqrt(error_vars[j]))
+  })
+
+  Y_discrete <- apply(Y, 2, function(x) {
+    # z-standardisieren (optional)
+    x_std <- (x - mean(x)) / sd(x)
+    
+    # auf 1-6 umskalieren
+    x_scaled <- 1 + (6 - 1) * (pnorm(x_std))
+    
+    # runden auf nächste ganze Zahl
+    round(x_scaled)
+  })
+
+  # 4. Cronbachs Alpha + Bootstrapping
+  alpha_obs <- psych::alpha(Y_discrete)$total$raw_alpha
+  bootstrapped_alpha <- boot(data = Y_discrete, statistic = alpha_boot, R = 100)
+  alpha_ci <- boot.ci(bootstrapped_alpha, type = "perc")$percent[4:5]
+
+
+  # 5. Observed Omega
+  
+  # 6. Wahrer Omega-Wert berechnen
+  true_omega <- (sum(loadings))^2 / ((sum(loadings))^2 + sum(error_vars))
+
+  # 7. Coverage prüfen
+  coverage <- if (!anyNA(alpha_ci)) (true_omega >= alpha_ci[1] && true_omega <= alpha_ci[2]) else NA
+
+  return(list(
+    alpha = alpha_obs,
+    alpha_ci = alpha_ci,
+    #omega = omega,
+    true_omega = true_omega,
+    coverage = coverage,
+    bias = true_omega - alpha_obs,
+    loadings_sd = sd(loadings)
+  ))
+}
+
+```
+
+
+Test the simulation of a single trial:
+
+```{r}
+start.time <- Sys.time()
+simulate_reliability_trial(
+  loading_type = "high_var",
+  n = 100,
+  n_items = 6
+)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+```
+Define Condition Grid
+
+```{r}
+loading_conditions <- c("tau_equivalent", "small_var", "medium_var", "high_var")
+item_numbers <- c(6, 12, 24)
+sample_sizes <- c(50, 200, 500)
+
+condition_grid <- expand.grid(
+  loading_type = loading_conditions,
+  n_items = item_numbers,
+  n = sample_sizes,
+  stringsAsFactors = FALSE
+)
+```
+
+Simulation durchführen
+
+```{r}
+n_sim <- 1000  # Anzahl der Simulationen pro Bedingung
+
+results_list <- list()
+trial_counter <- 1
+
+for (i in 1:nrow(condition_grid)) {
+  cond <- condition_grid[i, ]
+  print(paste0(cond$loading_type, ", ", cond$n, ", ", cond$n_items))
+  
+  for (sim in 1:n_sim) {
+    print(sim)
+    sim_res <- simulate_reliability_trial(
+      loading_type = cond$loading_type,
+      n = cond$n,
+      n_items = cond$n_items
+    )
+    
+    results_list[[trial_counter]] <- c(
+      trial = trial_counter,
+      loading_type = cond$loading_type,
+      n_items = cond$n_items,
+      n = cond$n,
+      alpha = sim_res$alpha,
+      alpha_ci_lower = sim_res$alpha_ci[1],
+      alpha_ci_upper = sim_res$alpha_ci[2],
+      true_omega = sim_res$true_omega,
+      coverage = sim_res$coverage,
+      bias = sim_res$bias,
+      loadings_sd = sim_res$loadings_sd
+    )
+    
+    trial_counter <- trial_counter + 1
+  }
+}
+
+```
+
+
+In dataframe umwandeln
+
+```{r}
+results_df <- as.data.frame(t(results_list[[1]]))
+for (i in 2:length(results_list)){
+  results_df <- rbind(results_df, as.data.frame(t(results_list[[i]])))
+}
+
+results_df$trial <- as.integer(results_df$trial)
+results_df$n_items <- as.integer(results_df$n_items)
+results_df$n <- as.integer(results_df$n)
+results_df$alpha <- as.numeric(as.character(results_df$alpha))
+results_df$alpha_ci_lower <- as.numeric(as.character(results_df$alpha_ci_lower))
+results_df$alpha_ci_upper <- as.numeric(as.character(results_df$alpha_ci_upper))
+results_df$true_omega <- as.numeric(as.character(results_df$true_omega))
+results_df$coverage <- as.logical(results_df$coverage)
+results_df$bias <- as.numeric(as.character(results_df$bias))
+results_df$loadings_sd <- as.numeric(as.character(results_df$loadings_sd))
+
+results_df$ci_width <- results_df$alpha_ci_upper - results_df$alpha_ci_lower 
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Summarize coverage rates
+coverage_summary <- results_df %>%
+  group_by(loading_type, n_items, n) %>%
+  summarize(coverage_rate = mean(coverage, na.rm = TRUE), .groups = "drop")
+
+# Plot with facets for sample size (n) and colors for number of items
+ggplot(coverage_summary, aes(x = loading_type, y = coverage_rate, fill = factor(n_items))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ n, labeller = label_bquote(rows = n == .(n))) +
+  labs(
+    title = "Coverage Rates of Alpha Confidence Intervals by Condition",
+    x = "Loading Type",
+    y = "Coverage Rate",
+    fill = "Number of Items"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r}
+ci_width_summary <- results_df %>%
+  group_by(loading_type, n_items, n) %>%
+  summarize(mean_ci_width = mean(ci_width, na.rm = TRUE), .groups = "drop")
+
+# Plot
+ggplot(ci_width_summary, aes(x = loading_type, y = mean_ci_width, fill = factor(n_items))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ n, labeller = label_bquote(rows = n == .(n))) +
+  labs(
+    title = "Mean Width of 95% Confidence Intervals for Cronbach's Alpha",
+    x = "Loading Type",
+    y = "Mean CI Width",
+    fill = "Number of Items"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
