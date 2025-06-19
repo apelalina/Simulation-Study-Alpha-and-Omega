@@ -1,3 +1,8 @@
+```{r}
+N_BOOT <- 50
+```
+
+
 Calculate Omega using Lavaan
 
 ```{r}
@@ -43,7 +48,7 @@ Helper for confidence Interval Bootstrapping
 ```{r}
 alpha_boot <- function(data, indices) {
   result <- tryCatch({
-    psych::alpha(data[indices, ], discrete = FALSE)$total$raw_alpha
+    psych::alpha(data[indices, ], discrete = FALSE, check.keys = FALSE)$total$raw_alpha
   }, error = function(e) NA)
   return(result)
 }
@@ -70,9 +75,9 @@ simulate_reliability_trial <- function(loading_type, n, n_items) {
   } else if (loading_type == "small_var") {
     loadings <- seq(0.6, 0.8, length.out = n_items)
   } else if (loading_type == "medium_var") {
-    loadings <- seq(0.5, 0.9, length.out = n_items)
+    loadings <- seq(0.4, 0.9, length.out = n_items)
   } else if (loading_type == "high_var") {
-    loadings <- seq(0.4, 0.95, length.out = n_items)
+    loadings <- seq(0.2, 0.99, length.out = n_items)
   }
 
   # choose error variances such that the variance is 1
@@ -88,14 +93,14 @@ simulate_reliability_trial <- function(loading_type, n, n_items) {
   colnames(Y) <- paste0("item", 1:ncol(Y))
 
   # Observed Cronbachs Alpha (with CI)
-  alpha_obs <- psych::alpha(Y, discrete = FALSE)$total$raw_alpha
-  bootstrapped_alpha <- boot(data = Y, statistic = alpha_boot, R = 200)
+  alpha_obs <- psych::alpha(Y, discrete = FALSE, check.keys = FALSE)$total$raw_alpha
+  bootstrapped_alpha <- boot(data = Y, statistic = alpha_boot, R = N_BOOT)
   alpha_ci <- boot.ci(bootstrapped_alpha, type = "perc")$percent[4:5]
 
 
   # Observed McDonalds Omega (with CI)
   omega_obs <- lavaan_omega(Y)
-  bootstrapped_omega <- boot(data = Y, statistic = omega_boot, R = 200)
+  bootstrapped_omega <- boot(data = Y, statistic = omega_boot, R = N_BOOT)
   omega_ci <- boot.ci(bootstrapped_omega, type = "perc")$percent[4:5]
   
   # True Omega 
@@ -124,7 +129,7 @@ Test the simulation of a single trial:
 ```{r message=TRUE}
 start.time <- Sys.time()
 result <- simulate_reliability_trial(
-  loading_type = "medium_var",
+  loading_type = "high_var",
   n = 250,
   n_items = 12
 )
@@ -137,9 +142,9 @@ time.passed
 Define Condition Grid
 
 ```{r}
-loading_conditions <- c("tau_equivalent", "small_var", "medium_var", "high_var")
-item_numbers <- c(6, 12, 24)
-sample_sizes <- c(50, 200, 500)
+loading_conditions <- c("tau_equivalent", "high_var")
+item_numbers <- c(6, 12)
+sample_sizes <- c(200, 500)
 
 condition_grid <- expand.grid(
   loading_type = loading_conditions,
@@ -152,7 +157,7 @@ condition_grid <- expand.grid(
 Simulation durchführen
 
 ```{r}
-n_sim <- 1000  # Anzahl der Simulationen pro Bedingung
+n_sim <- 10  # Anzahl der Simulationen pro Bedingung
 
 results_list <- list()
 trial_counter <- 1
