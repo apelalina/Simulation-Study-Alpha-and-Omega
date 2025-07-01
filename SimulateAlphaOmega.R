@@ -1,13 +1,3 @@
-# Setup ------------------------------------------------------------------------
-
-# How many repetitions for the bootstrapping of the confidence intervals?
-N_BOOT <- 100
-
-# Packages
-
-library(psych)
-library(lavaan)
-library(boot)
 
 # Calculate Omega using Lavaan -------------------------------------------------
 
@@ -17,15 +7,15 @@ lavaan_omega <- function(Y) {
   n_items <- length(items)
 
   # Create loadings string: first fixed to 1, others labeled l2, l3, ...
-  loadings_labels <- c("1*", paste0("l", 2:n_items, "*"))
+  loadings_labels <- c(paste0("l", 1:n_items, "*"))
   loadings_string <- paste0(loadings_labels, items, collapse = " + ")
 
   # Residual variances string: e1*item1 ~~ item1, e2*item2 ~~ item2, ...
   res_vars_string <- paste0(items, " ~~ e", 1:n_items, "*", items, collapse = "\n")
 
   # Omega formula components: sum of loadings terms (1 + l2 + l3 + ...)
-  loading_terms <- paste0(c("1", paste0("l", 2:n_items)), collapse = " + ")
-  omega_formula <- paste0("Omega := (", loading_terms, ")^2 / ((", loading_terms, ")^2 + ", paste0("e", 1:n_items, collapse = " + "), ")")
+  loading_terms <- paste0(paste0("l", 1:n_items), collapse = " + ")
+  omega_formula <- paste0("Omega := (", loading_terms, ")^2 / ((", loading_terms, ")^2 + (", paste0("e", 1:n_items, collapse = " + "), "))")
 
   # Build full model string
   model <- paste0("
@@ -103,34 +93,19 @@ simulate_reliability_trial <- function(loading_type, n, n_items) {
   true_omega <- (sum(loadings))^2 / ((sum(loadings))^2 + sum(error_vars))
 
   return(
-    list(
-      alpha = alpha_obs,
-      alpha_ci = alpha_ci,
-      omega = omega_obs,
-      omega_ci = omega_ci,
-      true_omega = true_omega,
-      coverage_alpha = if (!anyNA(alpha_ci)) (true_omega >= alpha_ci[1] && true_omega <= alpha_ci[2]) else NA,
-      coverage_omega = if (!anyNA(omega_ci)) (true_omega >= omega_ci[1] && true_omega <= omega_ci[2]) else NA,
-      bias_alpha = true_omega - alpha_obs,
-      bias_omega = true_omega - omega_obs
+    c(
+      "alpha" = alpha_obs,
+      "alpha_ci_lower" = alpha_ci[1],
+      "alpha_ci_upper" = alpha_ci[2],
+      "omega" = omega_obs,
+      "omega_ci_lower" = omega_ci[1],
+      "omega_ci_upper" = omega_ci[2],
+      "true_omega" = true_omega,
+      "coverage_alpha" = if (!anyNA(alpha_ci)) (true_omega >= alpha_ci[1] && true_omega <= alpha_ci[2]) else NA,
+      "coverage_omega" = if (!anyNA(omega_ci)) (true_omega >= omega_ci[1] && true_omega <= omega_ci[2]) else NA,
+      "bias_alpha" = true_omega - alpha_obs,
+      "bias_omega" = true_omega - omega_obs
     )
   )
 }
-
-
-
-# Simulate a single trial ------------------------------------------------------
-set.seed(2025)
-
-start.time <- Sys.time()
-result <- simulate_reliability_trial(
-  loading_type = "medium_var",
-  n = 500,
-  n_items = 12
-)
-end.time <- Sys.time()
-time.passed <- end.time - start.time
-
-result
-time.passed
 
