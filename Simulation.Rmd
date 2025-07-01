@@ -38,7 +38,7 @@ Define Condition Grid
 ```{r}
 loading_conditions <- c("tau_equivalent", "low_var", "medium_var", "high_var")
 item_numbers <- c(12, 18)
-sample_sizes <- c(250, 500)
+sample_sizes <- c(250, 500, 50)
 
 condition_grid <- expand.grid(
   loading_type = loading_conditions,
@@ -53,52 +53,52 @@ Simulation
 ```{r}
 
 simulate_condition <- function(n_sim = 6, cond = 1){
+    
+  start.time <- Sys.time()
   
-start.time <- Sys.time()
-
-cl <- makeCluster(6)
-
-clusterExport(cl = cl, varlist = c("simulate_reliability_trial", "n_sim", "cond", "condition_grid", "N_BOOT", "alpha_boot", "omega_boot", "lavaan_omega"))
-
-clusterEvalQ(cl = cl, expr = {library(lavaan)
-  library(psych)
-  library(boot)
-  })
-
-results <- t(pbsapply(
-  1:n_sim,
-  FUN = function(i) {
-    simulate_reliability_trial(condition_grid[cond, "loading_type"], condition_grid[cond, "n"], condition_grid[cond, "n_items"])
-  }
-, cl = cl))
-
-stopCluster(cl)
-
-results_df <- data.frame(results)
-results_df$loading_type <- condition_grid[cond, "loading_type"]
-results_df$n <- condition_grid[cond, "n"]
-results_df$n_items <- condition_grid[cond, "n_items"]
-
-filename <- sprintf(
-  "data/results_n%d_items%d_type%s_%s.csv",
-  condition_grid[cond, "n"],
-  condition_grid[cond, "n_items"],
-  condition_grid[cond, "loading_type"],
-  format(Sys.time(), "%Y-%m-%d_%H-%M-%S")
-)
-
-write.csv(results_df, file = filename, row.names = FALSE)
-
-end.time <- Sys.time()
-time.passed <- end.time - start.time
-print(time.passed)
-
-return(results_df)
+  cl <- makeCluster(6)
+  
+  clusterExport(cl = cl, varlist = c("simulate_reliability_trial", "n_sim", "cond", "condition_grid", "N_BOOT", "alpha_boot", "omega_boot", "lavaan_omega"), envir = environment())
+  
+  clusterEvalQ(cl = cl, expr = {library(lavaan)
+    library(psych)
+    library(boot)
+    })
+  
+  results <- t(pbsapply(
+    1:n_sim,
+    FUN = function(i) {
+      simulate_reliability_trial(condition_grid[cond, "loading_type"], condition_grid[cond, "n"], condition_grid[cond, "n_items"])
+    }
+  , cl = cl))
+  
+  stopCluster(cl)
+  
+  results_df <- data.frame(results)
+  results_df$loading_type <- condition_grid[cond, "loading_type"]
+  results_df$n <- condition_grid[cond, "n"]
+  results_df$n_items <- condition_grid[cond, "n_items"]
+  
+  filename <- sprintf(
+    "data/results_n%d_items%d_type%s_%s.csv",
+    condition_grid[cond, "n"],
+    condition_grid[cond, "n_items"],
+    condition_grid[cond, "loading_type"],
+    format(Sys.time(), "%Y-%m-%d_%H-%M-%S")
+  )
+  
+  write.csv(results_df, file = filename, row.names = FALSE)
+  
+  end.time <- Sys.time()
+  time.passed <- end.time - start.time
+  print(time.passed)
+  
+  return(results_df)
 }
 ```
 
 ```{r}
-simulate_condition(1)
+simulate_condition(n_sim = 1500, cond = 17)
 ```
 
 

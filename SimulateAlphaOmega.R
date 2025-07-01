@@ -58,7 +58,7 @@ simulate_reliability_trial <- function(loading_type, n, n_items) {
   # Loadings
   if (loading_type == "tau_equivalent") {
     loadings <- rep(0.7, n_items)
-  } else if (loading_type == "small_var") {
+  } else if (loading_type == "low_var") {
     loadings <- seq(0.6, 0.8, length.out = n_items)
   } else if (loading_type == "medium_var") {
     loadings <- seq(0.4, 0.9, length.out = n_items)
