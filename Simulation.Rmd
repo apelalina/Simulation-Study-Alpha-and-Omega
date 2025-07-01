@@ -98,7 +98,10 @@ simulate_condition <- function(n_sim = 6, cond = 1){
 ```
 
 ```{r}
-simulate_condition(n_sim = 1500, cond = 17)
+for (i in 1:nrow(condition_grid)){
+  simulate_condition(n_sim = 1500, cond = i)
+}
+
 ```
 
 
