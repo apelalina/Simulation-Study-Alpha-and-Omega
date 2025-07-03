@@ -1,0 +1,378 @@
+---
+title: "Auswertung"
+author: "Alina Apel"
+date: "2025-07-02"
+output: html_document
+---
+
+```{r}
+files <- list.files("./results")
+
+data <- data.frame()
+
+for (file in files){
+  current_data <- read.csv2(paste0("results\\", file), sep = ",")
+  
+  for(var in names(current_data)){
+    if(var != "loading_type"){
+      current_data[,var] <- as.numeric(current_data[,var])
+    }
+  }
+  
+  data <- rbind(data, current_data)
+}
+
+#data_copy <- data
+```
+
+```{r}
+data$loading_type <- factor(
+  data$loading_type,
+  levels = c("tau_equivalent", "low_var", "medium_var", "high_var"),
+  labels = c("Tau-äquivalent", "Geringe Varianz", "Mittlere Varianz", "Hohe Varianz")
+)
+
+data$n_items <- factor(
+  data$n_items,
+  levels = c("12", "18"),
+  labels = c("12 Items", "18 Items")
+)
+
+data$n <- factor(
+  data$n,
+  levels = c("500", "250", "50"),
+)
+
+```
+
+
+```{r}
+table(data[, c("loading_type", "n", "n_items")])
+```
+
+```{r}
+library(dplyr)
+
+summary_data <- data %>%
+  group_by(loading_type, n, n_items) %>%
+  summarise(
+    true_omega = mean(true_omega),
+    
+    mean_alpha = mean(alpha),
+    mean_omega = mean(omega),
+
+    mean_ci_lower_alpha = mean(alpha_ci_lower),
+    mean_ci_upper_alpha = mean(alpha_ci_upper),
+    ci_width_alpha = mean(alpha_ci_upper - alpha_ci_lower),
+    
+    mean_ci_lower_omega = mean(omega_ci_lower),
+    mean_ci_upper_omega = mean(omega_ci_upper),
+    ci_width_omega = mean(omega_ci_upper - omega_ci_lower),
+    
+    coverage_alpha = mean(coverage_alpha),
+    coverage_omega = mean(coverage_omega),
+    
+    bias_alpha = mean(alpha - true_omega),
+    bias_omega = mean(omega - true_omega),
+    
+    rmse_alpha = sqrt(mean((alpha - true_omega)^2)),
+    rmse_omega = sqrt(mean((omega - true_omega)^2)),
+    
+    .groups = "drop"
+  )
+```
+
+
+```{r}
+library(tidyr)
+
+plot_data <- summary_data %>%
+  pivot_longer(cols = c(mean_alpha, mean_omega, true_omega),
+               names_to = "measure",
+               values_to = "estimate") 
+
+plot_data$measure <- recode(plot_data$measure,
+                                 "mean_alpha" = "Alpha",
+                                 "mean_omega" = "Omega",
+                                 "true_omega" = "True Omega")
+```
+
+
+```{r}
+library(ggplot2)
+
+ggplot(plot_data, aes(x = loading_type, y = estimate, 
+                      color = measure, linetype = n,
+                      group = interaction(measure, n, n_items))) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ n_items) +
+  scale_color_manual(values = c("Alpha" = "#440154FF", "Omega" = "#7AD151FF", "True Omega" = "#2A788EFF")) +
+  scale_linetype_manual(values = c("50" = "dotted", "250" = "dashed", "500" = "solid")) +
+  labs(
+    title = "Reliabilitätsschätzungen nach Ladungsstruktur und Itemanzahl",
+    x = "Ladungsstruktur",
+    y = "Reliabilitätsschätzung",
+    color = "Schätzer",
+    linetype = "Stichprobengröße"
+  ) +
+  theme_bw(base_size = 18) +
+  theme(
+    legend.position = "bottom"
+  )
+```
+
+```{r}
+ci_data <- summary_data %>%
+  filter(n == "500") %>%
+  select(loading_type, n_items,
+         mean_alpha, mean_omega, true_omega,
+         mean_ci_lower_alpha, mean_ci_upper_alpha,
+         mean_ci_lower_omega, mean_ci_upper_omega) %>%
+  pivot_longer(
+    cols = c(mean_alpha, mean_omega, true_omega),
+    names_to = "measure",
+    values_to = "estimate"
+  ) %>%
+  mutate(
+    lower = case_when(
+      measure == "mean_alpha" ~ mean_ci_lower_alpha,
+      measure == "mean_omega" ~ mean_ci_lower_omega,
+      TRUE ~ NA_real_
+    ),
+    upper = case_when(
+      measure == "mean_alpha" ~ mean_ci_upper_alpha,
+      measure == "mean_omega" ~ mean_ci_upper_omega,
+      TRUE ~ NA_real_
+    ),
+    measure = recode(measure,
+                     "mean_alpha" = "Alpha",
+                     "mean_omega" = "Omega",
+                     "true_omega" = "True Omega")
+  )
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(ci_data, aes(x = loading_type, y = estimate, color = measure, group = measure)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = measure), alpha = 0.2, color = NA) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ n_items) +
+  scale_color_manual(values = c("Alpha" = "#440154FF", "Omega" = "#7AD151FF", "True Omega" = "#2A788EFF")) +
+  scale_fill_manual(values = c("Alpha" = "#440154FF", "Omega" = "#7AD151FF", "True Omega" = NA)) +
+  labs(
+    title = "Reliabilitätsschätzung mit Konfidenzintervallen (n = 500)",
+    x = "Ladungsstruktur",
+    y = "Reliabilitätsschätzung",
+    color = "Schätzer",
+    fill = "95% Konfidenzintervall"
+  ) +
+  theme_bw(base_size = 18) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+```
+
+
+```{r}
+# Nur die Bias-Werte extrahieren und transformieren
+bias_data <- summary_data %>%
+  select(loading_type, n, n_items, bias_alpha, bias_omega) %>%
+  pivot_longer(
+    cols = c(bias_alpha, bias_omega),
+    names_to = "measure",
+    values_to = "bias"
+  ) %>%
+  mutate(
+    measure = recode(measure,
+                     "bias_alpha" = "Alpha",
+                     "bias_omega" = "Omega")
+  )
+```
+
+
+```{r}
+ggplot(bias_data, aes(x = loading_type, y = n, fill = bias)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(bias, 3)), color = "black", size = 4) +
+  facet_grid(measure ~ n_items, labeller = label_both) +
+  scale_fill_gradient2(
+    low = "blue", mid = "white", high = "red", midpoint = 0,
+    name = "Bias"
+  ) +
+  labs(
+    title = "Heatmap des Bias für Alpha und Omega",
+    x = "Ladungsstruktur",
+    y = "Stichprobengröße"
+  ) +
+  theme_bw(base_size = 18) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right"
+  )
+```
+
+```{r}
+# RMSE-Daten vorbereiten
+rmse_data <- summary_data %>%
+  select(loading_type, n, n_items, rmse_alpha, rmse_omega) %>%
+  pivot_longer(
+    cols = c(rmse_alpha, rmse_omega),
+    names_to = "measure",
+    values_to = "rmse"
+  ) %>%
+  mutate(
+    measure = recode(measure,
+                     "rmse_alpha" = "Alpha",
+                     "rmse_omega" = "Omega")
+  )
+
+# Plot
+ggplot(rmse_data, aes(x = loading_type, y = n, fill = rmse)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(rmse, 3)), color = "black", size = 4) +
+  facet_grid(measure ~ n_items, labeller = label_both) +
+  scale_fill_gradient(low = "white", high = "darkred", name = "RMSE") +
+  labs(
+    title = "Heatmap des RMSE für Alpha und Omega",
+    x = "Ladungsstruktur",
+    y = "Stichprobengröße"
+  ) +
+  theme_bw(base_size = 18) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right"
+  )
+```
+
+```{r}
+# Coverage-Daten vorbereiten
+coverage_data <- summary_data %>%
+  select(loading_type, n, n_items, coverage_alpha, coverage_omega) %>%
+  pivot_longer(
+    cols = c(coverage_alpha, coverage_omega),
+    names_to = "measure",
+    values_to = "coverage"
+  ) %>%
+  mutate(
+    measure = recode(measure,
+                     "coverage_alpha" = "Alpha",
+                     "coverage_omega" = "Omega")
+  )
+
+# Plot
+ggplot(coverage_data, aes(x = loading_type, y = n, fill = coverage)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = scales::percent(coverage, accuracy = 0.1)), color = "black", size = 4) +
+  facet_grid(measure ~ n_items, labeller = label_both) +
+  scale_fill_gradient(low = "white", high = "darkgreen", name = "Coverage") +
+  labs(
+    title = "Heatmap der Konfidenzintervall-Coverage für Alpha und Omega",
+    x = "Ladungsstruktur",
+    y = "Stichprobengröße"
+  ) +
+  theme_bw(base_size = 18) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right"
+  )
+
+```
+```{r}
+# CI-Breiten-Daten vorbereiten
+ci_width_data <- summary_data %>%
+  select(loading_type, n, n_items, ci_width_alpha, ci_width_omega) %>%
+  pivot_longer(
+    cols = c(ci_width_alpha, ci_width_omega),
+    names_to = "measure",
+    values_to = "ci_width"
+  ) %>%
+  mutate(
+    measure = recode(measure,
+                     "ci_width_alpha" = "Alpha",
+                     "ci_width_omega" = "Omega")
+  )
+
+# Plot
+ggplot(ci_width_data, aes(x = loading_type, y = n, fill = ci_width)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(ci_width, 3)), color = "black", size = 4) +
+  facet_grid(measure ~ n_items, labeller = label_both) +
+  scale_fill_gradient(low = "white", high = "firebrick", name = "Breite des \n95% CI") +
+  labs(
+    title = "Heatmap der Konfidenzintervall-Breite für Alpha und Omega",
+    x = "Ladungsstruktur",
+    y = "Stichprobengröße"
+  ) +
+  theme_bw(base_size = 18) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right"
+  )
+
+```
+
+# MCSD
+
+```{r}
+summary_data2 <- data %>%
+  group_by(loading_type, n, n_items) %>%
+  summarise(
+    bias_alpha = mean(alpha - true_omega),
+    bias_omega = mean(omega - true_omega),
+    
+    mcsd_bias_alpha = sd(alpha - true_omega),
+    mcsd_bias_omega = sd(omega - true_omega),
+    
+    mcse_bias_alpha = mcsd_bias_alpha / sqrt(1500),
+    mcse_bias_omega = mcsd_bias_omega / sqrt(1500),
+    
+    .groups = "drop"
+  )
+```
+
+```{r}
+plot_data2 <- summary_data2 %>%
+  select(loading_type, n, n_items,
+         bias_alpha, bias_omega,
+         mcse_bias_alpha, mcse_bias_omega) %>%
+  pivot_longer(cols = c(bias_alpha, bias_omega),
+               names_to = "measure",
+               values_to = "bias") %>%
+  mutate(
+    mcse = ifelse(measure == "bias_alpha", mcse_bias_alpha, mcse_bias_omega),
+    measure = recode(measure,
+                     "bias_alpha" = "Alpha",
+                     "bias_omega" = "Omega")
+  )
+
+ggplot(plot_data2, aes(x = loading_type, y = bias, color = measure, group = measure)) +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = bias - 1.96 * mcse, ymax = bias + 1.96 * mcse), width = 0.4) +
+  facet_grid(n ~ n_items, labeller = label_both) +
+  scale_color_manual(values = c("Alpha" = "#440154FF", "Omega" = "#7AD151FF")) +
+  labs(
+    title = "Bias mit 95%-Konfidenzintervallen (MCSE)",
+    x = "Ladungsstruktur",
+    y = "Bias",
+    color = "Schätzer"
+  ) +
+  theme_bw(base_size = 18) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right"
+  )
+
+
+```
+
+
+
+
+
+
+
